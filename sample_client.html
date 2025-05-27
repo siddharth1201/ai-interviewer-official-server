@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Audio Interview</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .status {
+            text-align: center;
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 10px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        
+        .status.connecting {
+            background: rgba(255, 193, 7, 0.3);
+            border: 2px solid #ffc107;
+        }
+        
+        .status.connected {
+            background: rgba(40, 167, 69, 0.3);
+            border: 2px solid #28a745;
+        }
+        
+        .status.error {
+            background: rgba(220, 53, 69, 0.3);
+            border: 2px solid #dc3545;
+        }
+        
+        .controls {
+            text-align: center;
+            margin: 30px 0;
+        }
+        
+        button {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a52);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            margin: 10px;
+            border-radius: 50px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+        }
+        
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        button.recording {
+            background: linear-gradient(45deg, #ff4757, #ff3742);
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        .transcript-section {
+            margin: 30px 0;
+        }
+        
+        .transcript-box {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            margin: 15px 0;
+            min-height: 100px;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .transcript-box h3 {
+            margin-top: 0;
+            color: #ffc107;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        }
+        
+        .transcript-text {
+            line-height: 1.6;
+            font-size: 16px;
+        }
+        
+        .ai-transcript {
+            border-left: 4px solid #28a745;
+        }
+        
+        .user-transcript {
+            border-left: 4px solid #007bff;
+        }
+        
+        .audio-level {
+            width: 100%;
+            height: 10px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 5px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        
+        .audio-level-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #28a745, #ffc107, #dc3545);
+            width: 0%;
+            transition: width 0.1s ease;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 AI Interview Assistant</h1>
+        
+        <div id="status" class="status connecting">
+            Connecting to server...
+        </div>
+        
+        <div class="controls">
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="recordBtn" onclick="toggleRecording()" disabled>Start Recording</button>
+        </div>
+        
+        <div class="audio-level">
+            <div id="audioLevelBar" class="audio-level-bar"></div>
+        </div>
+        
+        <div class="transcript-section">
+            <div class="transcript-box ai-transcript">
+                <h3>🤖 AI Interviewer</h3>
+                <div id="aiTranscript" class="transcript-text">
+                    Waiting for connection...
+                </div>
+            </div>
+            
+            <div class="transcript-box user-transcript">
+                <h3>👤 Your Response</h3>
+                <div id="userTranscript" class="transcript-text">
+                    Ready to record your responses...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audio processing libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.0/lame.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/RecordRTC/5.6.2/RecordRTC.min.js"></script>
+
+    <script>
+        let websocket = null;
+        let recordRTC = null;
+        let audioContext = null;
+        let isRecording = false;
+        let stream = null;
+        let analyser = null;
+        let audioLevelAnimationId = null;
+
+        // Audio configuration
+        const SAMPLE_RATE = 32000;
+
+        // DOM elements
+        const statusEl = document.getElementById('status');
+        const connectBtn = document.getElementById('connectBtn');
+        const recordBtn = document.getElementById('recordBtn');
+        const aiTranscriptEl = document.getElementById('aiTranscript');
+        const userTranscriptEl = document.getElementById('userTranscript');
+        const audioLevelBar = document.getElementById('audioLevelBar');
+
+        function updateStatus(message, type) {
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+
+        async function connect() {
+            try {
+                updateStatus('Connecting to server...', 'connecting');
+                connectBtn.disabled = true;
+
+                websocket = new WebSocket('ws://localhost:8765');
+                
+                websocket.onopen = function(event) {
+                    updateStatus('Connected! Waiting for AI to initialize...', 'connected');
+                    initializeAudio();
+                };
+                
+                websocket.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    handleServerMessage(data);
+                };
+                
+                websocket.onclose = function(event) {
+                    updateStatus('Disconnected from server', 'error');
+                    connectBtn.disabled = false;
+                    recordBtn.disabled = true;
+                    cleanup();
+                };
+                
+                websocket.onerror = function(error) {
+                    updateStatus('Connection error', 'error');
+                    connectBtn.disabled = false;
+                    recordBtn.disabled = true;
+                };
+                
+            } catch (error) {
+                console.error('Connection error:', error);
+                updateStatus('Failed to connect', 'error');
+                connectBtn.disabled = false;
+            }
+        }
+
+        async function initializeAudio() {
+            try {
+                // Request microphone access
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        sampleRate: SAMPLE_RATE,
+                        channelCount: 1,
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    } 
+                });
+
+                // Set up audio context for level monitoring
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: SAMPLE_RATE
+                });
+                
+                const source = audioContext.createMediaStreamSource(stream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                source.connect(analyser);
+
+                // Start audio level monitoring
+                monitorAudioLevel();
+
+                updateStatus('Ready to start interview!', 'connected');
+                recordBtn.disabled = false;
+                
+            } catch (error) {
+                console.error('Audio initialization error:', error);
+                updateStatus('Microphone access denied', 'error');
+            }
+        }
+
+        function monitorAudioLevel() {
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            
+            function updateLevel() {
+                if (analyser) {
+                    analyser.getByteFrequencyData(dataArray);
+                    const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+                    const percentage = (average / 255) * 100;
+                    audioLevelBar.style.width = percentage + '%';
+                }
+                audioLevelAnimationId = requestAnimationFrame(updateLevel);
+            }
+            
+            updateLevel();
+        }
+
+        function handleServerMessage(data) {
+            switch (data.type) {
+                case 'ready':
+                    updateStatus(data.message, 'connected');
+                    recordBtn.disabled = false;
+                    break;
+                    
+                case 'audio':
+                    playAudioFromBase64(data.data);
+                    break;
+                    
+                case 'ai_transcript':
+                    if (!data.partial) {
+                        aiTranscriptEl.textContent = data.text;
+                    }
+                    break;
+                    
+                case 'user_transcript':
+                    if (!data.partial) {
+                        userTranscriptEl.textContent = data.text;
+                    }
+                    break;
+            }
+        }
+
+        async function playAudioFromBase64(base64Data) {
+            try {
+                // Convert base64 to array buffer
+                const binaryString = atob(base64Data);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+
+                // Create a proper WAV header for the PCM data
+                const wavBuffer = createWavFromPCM(bytes, 24000, 1, 16);
+                
+                // Create blob and play
+                const audioBlob = new Blob([wavBuffer], { type: 'audio/wav' });
+                const audioUrl = URL.createObjectURL(audioBlob);
+                
+                const audio = new Audio(audioUrl);
+                audio.onended = () => URL.revokeObjectURL(audioUrl);
+                await audio.play();
+                
+            } catch (error) {
+                console.error('Error playing audio:', error);
+            }
+        }
+
+        function createWavFromPCM(pcmData, sampleRate, channels, bitsPerSample) {
+            const length = pcmData.length;
+            const buffer = new ArrayBuffer(44 + length);
+            const view = new DataView(buffer);
+            
+            // WAV header
+            const writeString = (offset, string) => {
+                for (let i = 0; i < string.length; i++) {
+                    view.setUint8(offset + i, string.charCodeAt(i));
+                }
+            };
+            
+            writeString(0, 'RIFF');
+            view.setUint32(4, 36 + length, true);
+            writeString(8, 'WAVE');
+            writeString(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, channels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * channels * bitsPerSample / 8, true);
+            view.setUint16(32, channels * bitsPerSample / 8, true);
+            view.setUint16(34, bitsPerSample, true);
+            writeString(36, 'data');
+            view.setUint32(40, length, true);
+            
+            // Copy PCM data
+            const uint8Array = new Uint8Array(buffer, 44);
+            uint8Array.set(pcmData);
+            
+            return buffer;
+        }
+
+        async function toggleRecording() {
+            if (!isRecording) {
+                await startRecording();
+            } else {
+                stopRecording();
+            }
+        }
+
+        async function startRecording() {
+            try {
+                if (!stream) {
+                    throw new Error('Audio stream not initialized');
+                }
+
+                // Configure RecordRTC for continuous streaming
+                recordRTC = new RecordRTC(stream, {
+                    type: 'audio',
+                    mimeType: 'audio/wav',
+                    recorderType: RecordRTC.StereoAudioRecorder,
+                    numberOfAudioChannels: 1,
+                    desiredSampRate: 16000,
+                    bufferSize: 4096,
+                    timeSlice: 500, // Get data every 500ms
+                    ondataavailable: async (blob) => {
+                        await processAndSendAudio(blob);
+                    }
+                });
+
+                recordRTC.startRecording();
+                isRecording = true;
+                recordBtn.textContent = 'Stop Recording';
+                recordBtn.classList.add('recording');
+                userTranscriptEl.textContent = 'Recording...';
+
+            } catch (error) {
+                console.error('Error starting recording:', error);
+                updateStatus('Recording error', 'error');
+            }
+        }
+
+        // Simplify stopRecording since we don't need to process final audio
+        function stopRecording() {
+            if (recordRTC && isRecording) {
+                recordRTC.stopRecording();
+                isRecording = false;
+                recordBtn.textContent = 'Start Recording';
+                recordBtn.classList.remove('recording');
+                userTranscriptEl.textContent = 'Stopped recording';
+            }
+        }
+
+        async function processAndSendAudio(audioBlob) {
+            try {
+                // Convert WAV to PCM data
+                const arrayBuffer = await audioBlob.arrayBuffer();
+                
+                // Skip WAV header (44 bytes) to get raw PCM data
+                const pcmData = new Uint8Array(arrayBuffer.slice(44));
+                
+                // Convert to base64
+                const base64Data = btoa(String.fromCharCode.apply(null, Array.from(pcmData).slice(0, 8192)));
+                console.log('Sending audio data:', base64Data);
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    websocket.send(JSON.stringify({
+                        type: 'audio',
+                        data: base64Data
+                    }));
+                }
+                
+            } catch (error) {
+                console.error('Error processing audio:', error);
+                userTranscriptEl.textContent = 'Error processing audio';
+            }
+        }
+
+        function cleanup() {
+            if (recordRTC && isRecording) {
+                recordRTC.stopRecording();
+            }
+            
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+            
+            if (audioLevelAnimationId) {
+                cancelAnimationFrame(audioLevelAnimationId);
+                audioLevelAnimationId = null;
+            }
+            
+            isRecording = false;
+            recordBtn.textContent = 'Start Recording';
+            recordBtn.classList.remove('recording');
+        }
+
+        // Initialize connection when page loads
+        window.addEventListener('load', () => {
+            // Auto-connect could be enabled here if desired
+            // connect();
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', cleanup);
+    </script>
+</body>
+</html>
