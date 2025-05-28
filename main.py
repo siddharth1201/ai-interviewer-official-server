@@ -23,7 +23,7 @@ MODEL = "models/gemini-2.0-flash-live-001"
 
 client = genai.Client(
     http_options={"api_version": "v1beta"},
-    api_key="AIzaSyDJsgZ9yRFF6lu4DMZxkg3n4MesTTkNpFQ",
+    api_key="",
 )
 
 # Try CONFIG without input_audio_transcription first to see if that's the issue
